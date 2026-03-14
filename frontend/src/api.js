@@ -31,6 +31,7 @@ export const api = {
   deleteSubcategory: (id) => request(`/products/subcategories/${id}`, { method: 'DELETE' }),
   getProducts: (params) => request(`/products?${new URLSearchParams(params)}`),
   getProduct: (id) => request(`/products/${id}`),
+  getRelatedProducts: (id) => request(`/products/${id}/related`),
   createProduct: (data) => request('/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id, data) => request(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),

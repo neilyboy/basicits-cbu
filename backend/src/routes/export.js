@@ -176,10 +176,12 @@ router.get('/:id/pdf', (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="CBU-${cbu.project_name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf"`);
     doc.pipe(res);
 
-    // Try to add logo
-    const logoPath = path.join(__dirname, '..', '..', 'assets', 'logo.png');
-    if (fs.existsSync(logoPath)) {
-      doc.image(logoPath, 50, 40, { width: 120 });
+    // Try to add logo (dark version for white background PDF)
+    const logoPath = path.join(__dirname, '..', '..', 'assets', 'logo-dark.png');
+    const logoFallback = path.join(__dirname, '..', '..', 'assets', 'logo.png');
+    const logoFile = fs.existsSync(logoPath) ? logoPath : (fs.existsSync(logoFallback) ? logoFallback : null);
+    if (logoFile) {
+      doc.image(logoFile, 50, 40, { width: 120 });
       doc.moveDown(3);
     }
 
@@ -215,8 +217,8 @@ router.get('/:id/pdf', (req, res) => {
     // Table header
     const tableTop = doc.y;
     const col = { num: 50, sku: 70, name: 160, price: 390, qty: 450, total: 490 };
-    doc.fontSize(8).fillColor('#fff');
     doc.rect(50, tableTop, 512, 18).fill('#1a1a2e');
+    doc.fontSize(8).fillColor('#fff');
     doc.text('#', col.num + 4, tableTop + 5);
     doc.text('SKU', col.sku + 4, tableTop + 5);
     doc.text('Description', col.name + 4, tableTop + 5);

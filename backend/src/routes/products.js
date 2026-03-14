@@ -160,6 +160,64 @@ router.get('/:id', (req, res) => {
   }
 });
 
+// Get related products (accessories + licenses from same category)
+router.get('/:id/related', (req, res) => {
+  try {
+    const product = db.prepare(`
+      SELECT p.*, s.name as subcategory_name, s.category_id, c.name as category_name
+      FROM products p
+      JOIN product_subcategories s ON p.subcategory_id = s.id
+      JOIN product_categories c ON s.category_id = c.id
+      WHERE p.id = ?
+    `).get(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    // Get all subcategories in the same category
+    const subcategories = db.prepare(`
+      SELECT id, name FROM product_subcategories WHERE category_id = ? ORDER BY sort_order, name
+    `).all(product.category_id);
+
+    // Identify license and accessory subcategories by name pattern
+    const licenseSubcatIds = subcategories
+      .filter(s => /license/i.test(s.name) && !/government/i.test(s.name))
+      .map(s => s.id);
+    const accessorySubcatIds = subcategories
+      .filter(s => /accessor/i.test(s.name))
+      .map(s => s.id);
+
+    let licenses = [];
+    let accessories = [];
+
+    if (licenseSubcatIds.length > 0) {
+      const placeholders = licenseSubcatIds.map(() => '?').join(',');
+      licenses = db.prepare(`
+        SELECT p.*, s.name as subcategory_name, c.name as category_name
+        FROM products p
+        JOIN product_subcategories s ON p.subcategory_id = s.id
+        JOIN product_categories c ON s.category_id = c.id
+        WHERE p.subcategory_id IN (${placeholders})
+        ORDER BY p.list_price, p.name
+      `).all(...licenseSubcatIds);
+    }
+
+    if (accessorySubcatIds.length > 0) {
+      const placeholders = accessorySubcatIds.map(() => '?').join(',');
+      accessories = db.prepare(`
+        SELECT p.*, s.name as subcategory_name, c.name as category_name
+        FROM products p
+        JOIN product_subcategories s ON p.subcategory_id = s.id
+        JOIN product_categories c ON s.category_id = c.id
+        WHERE p.subcategory_id IN (${placeholders})
+        ORDER BY p.list_price, p.name
+      `).all(...accessorySubcatIds);
+    }
+
+    res.json({ product, licenses, accessories });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Create product
 router.post('/', (req, res) => {
   try {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Save, Plus, Trash2, Search, X, Package, ChevronDown, ChevronRight, ShoppingCart, Minus } from 'lucide-react'
+import { Save, Plus, Trash2, Search, X, Package, ChevronDown, ChevronRight, ShoppingCart, Minus, ArrowLeft, Shield, Wrench, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getImageUrl } from '../api'
 
@@ -26,6 +26,14 @@ export default function CbuEditor() {
   const [expandedCats, setExpandedCats] = useState({})
   const [selectedSubcat, setSelectedSubcat] = useState(null)
   const [cart, setCart] = useState([])
+
+  // Configure step state (accessories + licenses)
+  const [configuring, setConfiguring] = useState(null) // the hardware product being configured
+  const [relatedData, setRelatedData] = useState({ licenses: [], accessories: [] })
+  const [selectedLicense, setSelectedLicense] = useState(null)
+  const [selectedAccessories, setSelectedAccessories] = useState({}) // { productId: quantity }
+  const [loadingRelated, setLoadingRelated] = useState(false)
+  const [configQty, setConfigQty] = useState(1)
 
   useEffect(() => {
     api.getFolders().then(f => setFolders(flattenFolders(f))).catch(() => {})
@@ -204,14 +212,82 @@ export default function CbuEditor() {
     api.getProducts(params).then(res => setPickerProducts(res.products || [])).catch(() => {})
   }, [showPicker, pickerSearch, selectedSubcat])
 
-  function addToCart(product) {
-    setCart(prev => {
-      const existing = prev.find(c => c.id === product.id)
-      if (existing) {
-        return prev.map(c => c.id === product.id ? { ...c, quantity: (c.quantity || 1) + 1 } : c)
+  // Start configuring a hardware product (fetch related accessories/licenses)
+  async function startConfigure(product) {
+    setConfiguring(product)
+    setConfigQty(1)
+    setSelectedLicense(null)
+    setSelectedAccessories({})
+    setLoadingRelated(true)
+    try {
+      const data = await api.getRelatedProducts(product.id)
+      setRelatedData({ licenses: data.licenses || [], accessories: data.accessories || [] })
+    } catch (err) {
+      setRelatedData({ licenses: [], accessories: [] })
+    }
+    setLoadingRelated(false)
+  }
+
+  function cancelConfigure() {
+    setConfiguring(null)
+    setRelatedData({ licenses: [], accessories: [] })
+    setSelectedLicense(null)
+    setSelectedAccessories({})
+  }
+
+  function toggleAccessory(product) {
+    setSelectedAccessories(prev => {
+      const copy = { ...prev }
+      if (copy[product.id]) {
+        delete copy[product.id]
+      } else {
+        copy[product.id] = { ...product, quantity: configQty }
       }
-      return [...prev, { ...product, quantity: 1 }]
+      return copy
     })
+  }
+
+  function updateAccessoryQty(productId, qty) {
+    if (qty < 1) return
+    setSelectedAccessories(prev => ({
+      ...prev,
+      [productId]: { ...prev[productId], quantity: qty }
+    }))
+  }
+
+  // Confirm configure: add hardware + selected license + selected accessories to cart
+  function confirmConfigure() {
+    if (!configuring) return
+    const newItems = []
+
+    // Add the hardware product
+    newItems.push({ ...configuring, quantity: configQty, _itemType: 'hardware' })
+
+    // Add selected license
+    if (selectedLicense) {
+      newItems.push({ ...selectedLicense, quantity: configQty, _itemType: 'license' })
+    }
+
+    // Add selected accessories
+    Object.values(selectedAccessories).forEach(acc => {
+      newItems.push({ ...acc, _itemType: 'accessory' })
+    })
+
+    setCart(prev => {
+      let updated = [...prev]
+      for (const item of newItems) {
+        const existing = updated.find(c => c.id === item.id)
+        if (existing) {
+          updated = updated.map(c => c.id === item.id ? { ...c, quantity: (c.quantity || 1) + item.quantity } : c)
+        } else {
+          updated.push(item)
+        }
+      }
+      return updated
+    })
+
+    cancelConfigure()
+    toast.success(`Added ${configuring.name} with ${selectedLicense ? '1 license' : 'no license'} and ${Object.keys(selectedAccessories).length} accessor${Object.keys(selectedAccessories).length === 1 ? 'y' : 'ies'}`)
   }
 
   function removeFromCart(productId) {
@@ -426,98 +502,229 @@ export default function CbuEditor() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col">
             {/* Header */}
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="font-semibold text-lg text-brand-900">Add Hardware</h3>
               <div className="flex items-center gap-3">
-                {cart.length > 0 && (
+                {configuring && (
+                  <button onClick={cancelConfigure} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+                    <ArrowLeft size={18} />
+                  </button>
+                )}
+                <h3 className="font-semibold text-lg text-brand-900">
+                  {configuring ? 'Configure: ' + configuring.name : 'Add Hardware'}
+                </h3>
+              </div>
+              <div className="flex items-center gap-3">
+                {cart.length > 0 && !configuring && (
                   <span className="flex items-center gap-1 bg-brand-50 text-brand-700 px-3 py-1 rounded-full text-sm font-medium">
                     <ShoppingCart size={14} /> {cart.reduce((s, c) => s + c.quantity, 0)} items
                   </span>
                 )}
-                <button onClick={() => { setShowPicker(false); setCart([]) }} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                <button onClick={() => { setShowPicker(false); setCart([]); cancelConfigure() }} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
               </div>
             </div>
 
-            <div className="flex flex-1 min-h-0">
-              {/* Category sidebar */}
-              <div className="w-56 border-r border-gray-200 overflow-y-auto p-3 space-y-0.5 scrollbar-thin">
-                <button onClick={() => setSelectedSubcat(null)} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${!selectedSubcat ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}>
-                  All Products
-                </button>
-                {categories.map(cat => (
-                  <div key={cat.id}>
-                    <button onClick={() => setExpandedCats(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
-                      className="w-full flex items-center gap-1 px-3 py-2 text-sm text-gray-700 font-medium hover:bg-gray-100 rounded-lg">
-                      {expandedCats[cat.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      {cat.name}
-                      <span className="ml-auto text-xs text-gray-400">{cat.product_count}</span>
-                    </button>
-                    {expandedCats[cat.id] && cat.subcategories?.map(sub => (
-                      <button key={sub.id} onClick={() => setSelectedSubcat(sub.id)}
-                        className={`w-full text-left pl-8 pr-3 py-1.5 text-xs rounded-lg ${selectedSubcat === sub.id ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-500 hover:bg-gray-100'}`}>
-                        {sub.name} <span className="text-gray-400">({sub.product_count})</span>
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-
-              {/* Product list */}
-              <div className="flex-1 flex flex-col min-w-0">
-                <div className="p-3 border-b border-gray-100">
-                  <div className="relative">
-                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input type="text" value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
-                      placeholder="Search products..." className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-400" />
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin">
-                  {pickerProducts.map(product => {
-                    const inCart = cart.find(c => c.id === product.id)
-                    return (
-                      <div key={product.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all ${inCart ? 'border-brand-300 bg-brand-50' : 'border-transparent hover:bg-gray-50'}`}>
-                        {(product.local_image || product.image_url) && (
-                          <img src={getImageUrl(product)} className="w-10 h-10 object-contain rounded" onError={e => e.target.style.display = 'none'} />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{product.name}</p>
-                          <p className="text-xs text-gray-500">{product.sku} &bull; {product.category_name}</p>
-                        </div>
-                        <p className="text-sm font-semibold text-brand-900 shrink-0">{fmt(product.list_price)}</p>
-                        {inCart ? (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button onClick={() => updateCartQty(product.id, inCart.quantity - 1)} className="w-6 h-6 flex items-center justify-center rounded bg-gray-200 hover:bg-gray-300 text-xs"><Minus size={12} /></button>
-                            <span className="w-6 text-center text-sm font-medium">{inCart.quantity}</span>
-                            <button onClick={() => updateCartQty(product.id, inCart.quantity + 1)} className="w-6 h-6 flex items-center justify-center rounded bg-brand-100 hover:bg-brand-200 text-brand-700 text-xs"><Plus size={12} /></button>
-                          </div>
-                        ) : (
-                          <button onClick={() => addToCart(product)} className="shrink-0 bg-brand-900 text-white px-3 py-1 rounded-lg text-xs font-medium hover:bg-brand-800">
-                            Add
-                          </button>
-                        )}
+            {/* STEP 2: Configure accessories + licenses */}
+            {configuring ? (
+              <div className="flex-1 overflow-y-auto">
+                {/* Selected hardware summary */}
+                <div className="px-6 py-4 bg-brand-50 border-b border-brand-100">
+                  <div className="flex items-center gap-4">
+                    {(configuring.local_image || configuring.image_url) && (
+                      <img src={getImageUrl(configuring)} className="w-14 h-14 object-contain rounded-lg bg-white p-1" onError={e => e.target.style.display = 'none'} />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-brand-900">{configuring.name}</p>
+                      <p className="text-xs text-gray-500">{configuring.sku} &bull; {configuring.category_name}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-brand-900 text-lg">{fmt(configuring.list_price)}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-xs text-gray-500">Qty:</span>
+                        <button onClick={() => setConfigQty(q => Math.max(1, q - 1))} className="w-6 h-6 flex items-center justify-center rounded bg-white border hover:bg-gray-50 text-xs"><Minus size={10} /></button>
+                        <span className="w-6 text-center text-sm font-semibold">{configQty}</span>
+                        <button onClick={() => setConfigQty(q => q + 1)} className="w-6 h-6 flex items-center justify-center rounded bg-white border hover:bg-gray-50 text-xs"><Plus size={10} /></button>
                       </div>
-                    )
-                  })}
-                  {pickerProducts.length === 0 && (
-                    <div className="text-center py-8 text-gray-400 text-sm">No products found. Import products first.</div>
-                  )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Cart footer */}
-            {cart.length > 0 && (
-              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-                <div className="text-sm text-gray-600">
-                  <strong>{cart.reduce((s, c) => s + c.quantity, 0)}</strong> items selected &bull;
-                  Total: <strong>{fmt(cart.reduce((s, c) => s + c.list_price * c.quantity, 0))}</strong>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setCart([])} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100">Clear</button>
-                  <button onClick={handleAddItemsFromCart} className="flex items-center gap-2 bg-brand-900 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-brand-800">
-                    <ShoppingCart size={15} /> Add to CBU
+                {loadingRelated ? (
+                  <div className="p-8 text-center text-gray-400">Loading related products...</div>
+                ) : (
+                  <div className="px-6 py-4 space-y-6">
+                    {/* License selection */}
+                    <div>
+                      <h4 className="flex items-center gap-2 font-semibold text-sm text-brand-900 mb-3">
+                        <Shield size={16} className="text-blue-500" /> Select License
+                        {relatedData.licenses.length === 0 && <span className="text-xs text-gray-400 font-normal">(no licenses available for this category)</span>}
+                      </h4>
+                      {relatedData.licenses.length > 0 && (
+                        <div className="space-y-1.5">
+                          <label className="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-all">
+                            <input type="radio" name="license" checked={!selectedLicense} onChange={() => setSelectedLicense(null)} className="text-brand-600" />
+                            <span className="text-sm text-gray-500">No license</span>
+                          </label>
+                          {relatedData.licenses.map(lic => (
+                            <label key={lic.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all cursor-pointer ${selectedLicense?.id === lic.id ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                              <input type="radio" name="license" checked={selectedLicense?.id === lic.id} onChange={() => setSelectedLicense(lic)} className="text-brand-600" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium">{lic.name}</p>
+                                <p className="text-xs text-gray-500">{lic.sku}{lic.description && lic.description !== lic.name ? ` - ${lic.description}` : ''}</p>
+                              </div>
+                              <span className="text-sm font-semibold text-brand-900 shrink-0">{fmt(lic.list_price)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Accessories selection */}
+                    <div>
+                      <h4 className="flex items-center gap-2 font-semibold text-sm text-brand-900 mb-3">
+                        <Wrench size={16} className="text-orange-500" /> Select Accessories
+                        {relatedData.accessories.length === 0 && <span className="text-xs text-gray-400 font-normal">(no accessories available for this category)</span>}
+                      </h4>
+                      {relatedData.accessories.length > 0 && (
+                        <div className="space-y-1.5">
+                          {relatedData.accessories.map(acc => {
+                            const isSelected = !!selectedAccessories[acc.id]
+                            return (
+                              <div key={acc.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all ${isSelected ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                                <input type="checkbox" checked={isSelected} onChange={() => toggleAccessory(acc)} className="rounded text-orange-600 cursor-pointer" />
+                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleAccessory(acc)}>
+                                  <p className="text-sm font-medium">{acc.name}</p>
+                                  <p className="text-xs text-gray-500">{acc.sku}{acc.description && acc.description !== acc.name ? ` - ${acc.description}` : ''}</p>
+                                </div>
+                                <span className="text-sm font-semibold text-brand-900 shrink-0">{fmt(acc.list_price)}</span>
+                                {isSelected && (
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button onClick={() => updateAccessoryQty(acc.id, selectedAccessories[acc.id].quantity - 1)} className="w-5 h-5 flex items-center justify-center rounded bg-white border text-xs"><Minus size={10} /></button>
+                                    <span className="w-5 text-center text-xs font-medium">{selectedAccessories[acc.id].quantity}</span>
+                                    <button onClick={() => updateAccessoryQty(acc.id, selectedAccessories[acc.id].quantity + 1)} className="w-5 h-5 flex items-center justify-center rounded bg-white border text-xs"><Plus size={10} /></button>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Configure summary */}
+                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                      <h4 className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">Summary</h4>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between"><span>{configuring.name} x{configQty}</span><span className="font-medium">{fmt(configuring.list_price * configQty)}</span></div>
+                        {selectedLicense && <div className="flex justify-between text-blue-700"><span>{selectedLicense.name} x{configQty}</span><span className="font-medium">{fmt(selectedLicense.list_price * configQty)}</span></div>}
+                        {Object.values(selectedAccessories).map(acc => (
+                          <div key={acc.id} className="flex justify-between text-orange-700"><span>{acc.name} x{acc.quantity}</span><span className="font-medium">{fmt(acc.list_price * acc.quantity)}</span></div>
+                        ))}
+                        <div className="border-t border-gray-300 pt-1 mt-2 flex justify-between font-bold">
+                          <span>Configuration Total</span>
+                          <span>{fmt(
+                            (configuring.list_price * configQty) +
+                            (selectedLicense ? selectedLicense.list_price * configQty : 0) +
+                            Object.values(selectedAccessories).reduce((s, a) => s + a.list_price * a.quantity, 0)
+                          )}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Configure footer */}
+                <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between sticky bottom-0">
+                  <button onClick={cancelConfigure} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100">Back to Browse</button>
+                  <button onClick={confirmConfigure} className="flex items-center gap-2 bg-brand-900 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-brand-800">
+                    <Check size={15} /> Add to Cart
                   </button>
                 </div>
               </div>
+            ) : (
+              /* STEP 1: Browse products */
+              <>
+                <div className="flex flex-1 min-h-0">
+                  {/* Category sidebar */}
+                  <div className="w-56 border-r border-gray-200 overflow-y-auto p-3 space-y-0.5 scrollbar-thin">
+                    <button onClick={() => setSelectedSubcat(null)} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${!selectedSubcat ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}>
+                      All Products
+                    </button>
+                    {categories.map(cat => (
+                      <div key={cat.id}>
+                        <button onClick={() => setExpandedCats(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
+                          className="w-full flex items-center gap-1 px-3 py-2 text-sm text-gray-700 font-medium hover:bg-gray-100 rounded-lg">
+                          {expandedCats[cat.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          {cat.name}
+                          <span className="ml-auto text-xs text-gray-400">{cat.product_count}</span>
+                        </button>
+                        {expandedCats[cat.id] && cat.subcategories?.map(sub => (
+                          <button key={sub.id} onClick={() => setSelectedSubcat(sub.id)}
+                            className={`w-full text-left pl-8 pr-3 py-1.5 text-xs rounded-lg ${selectedSubcat === sub.id ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-500 hover:bg-gray-100'}`}>
+                            {sub.name} <span className="text-gray-400">({sub.product_count})</span>
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Product list */}
+                  <div className="flex-1 flex flex-col min-w-0">
+                    <div className="p-3 border-b border-gray-100">
+                      <div className="relative">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input type="text" value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
+                          placeholder="Search products..." className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-brand-400" />
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin">
+                      {pickerProducts.map(product => {
+                        const inCart = cart.find(c => c.id === product.id)
+                        return (
+                          <div key={product.id} className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all ${inCart ? 'border-brand-300 bg-brand-50' : 'border-transparent hover:bg-gray-50'}`}>
+                            {(product.local_image || product.image_url) && (
+                              <img src={getImageUrl(product)} className="w-10 h-10 object-contain rounded" onError={e => e.target.style.display = 'none'} />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{product.name}</p>
+                              <p className="text-xs text-gray-500">{product.sku} &bull; {product.category_name}</p>
+                            </div>
+                            <p className="text-sm font-semibold text-brand-900 shrink-0">{fmt(product.list_price)}</p>
+                            {inCart ? (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => updateCartQty(product.id, inCart.quantity - 1)} className="w-6 h-6 flex items-center justify-center rounded bg-gray-200 hover:bg-gray-300 text-xs"><Minus size={12} /></button>
+                                <span className="w-6 text-center text-sm font-medium">{inCart.quantity}</span>
+                                <button onClick={() => updateCartQty(product.id, inCart.quantity + 1)} className="w-6 h-6 flex items-center justify-center rounded bg-brand-100 hover:bg-brand-200 text-brand-700 text-xs"><Plus size={12} /></button>
+                              </div>
+                            ) : (
+                              <button onClick={() => startConfigure(product)} className="shrink-0 bg-brand-900 text-white px-3 py-1 rounded-lg text-xs font-medium hover:bg-brand-800">
+                                Add
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {pickerProducts.length === 0 && (
+                        <div className="text-center py-8 text-gray-400 text-sm">No products found. Import products first.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cart footer */}
+                {cart.length > 0 && (
+                  <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+                    <div className="text-sm text-gray-600">
+                      <strong>{cart.reduce((s, c) => s + c.quantity, 0)}</strong> items selected &bull;
+                      Total: <strong>{fmt(cart.reduce((s, c) => s + c.list_price * c.quantity, 0))}</strong>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setCart([])} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100">Clear</button>
+                      <button onClick={handleAddItemsFromCart} className="flex items-center gap-2 bg-brand-900 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-brand-800">
+                        <ShoppingCart size={15} /> Add to CBU
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
