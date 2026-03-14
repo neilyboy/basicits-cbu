@@ -57,6 +57,8 @@ export const api = {
 
   // Images
   getMissingImages: () => request('/images/missing'),
+  fillFamilyImages: () => request('/images/fill-family', { method: 'POST' }),
+  shareToFamily: (productId) => request(`/images/share-to-family/${productId}`, { method: 'POST' }),
   fetchAllImages: () => request('/images/fetch-all', { method: 'POST' }),
   discoverImages: () => request('/images/discover', { method: 'POST' }),
   uploadImageZip: (file) => {

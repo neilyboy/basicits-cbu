@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react'
+import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, AlertCircle, RefreshCw, Users, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getImageUrl } from '../api'
 
@@ -10,6 +10,7 @@ export default function MissingImages() {
   const [expandedCats, setExpandedCats] = useState({})
   const [expandedSubs, setExpandedSubs] = useState({})
   const [uploadingFor, setUploadingFor] = useState(null)
+  const [filling, setFilling] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -26,17 +27,36 @@ export default function MissingImages() {
 
   useEffect(() => { load() }, [load])
 
-  async function handleUpload(e, productId) {
+  async function handleUpload(e, productId, shareToFamily = false) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
     setUploadingFor(productId)
     try {
       await api.uploadImage(file, productId)
-      toast.success('Image uploaded')
+      if (shareToFamily) {
+        const result = await api.shareToFamily(productId)
+        toast.success(`Image uploaded and shared to ${result.shared} family members (${result.model})`, { duration: 5000 })
+      } else {
+        toast.success('Image uploaded')
+      }
       load()
     } catch (err) { toast.error(err.message) }
     setUploadingFor(null)
+  }
+
+  async function handleFillFamily() {
+    setFilling(true)
+    try {
+      const result = await api.fillFamilyImages()
+      if (result.filled > 0) {
+        toast.success(`Filled ${result.filled} products from ${result.families_with_images} model families`, { duration: 6000 })
+      } else {
+        toast('No new family matches found. Upload images for at least one product per model family first.', { duration: 6000, icon: 'ℹ️' })
+      }
+      load()
+    } catch (err) { toast.error(err.message) }
+    setFilling(false)
   }
 
   if (loading) {
@@ -57,9 +77,15 @@ export default function MissingImages() {
           <h1 className="text-2xl font-bold text-brand-900">Missing Images Report</h1>
           <p className="text-sm text-gray-500 mt-1">Products that need images, grouped by category</p>
         </div>
-        <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
-          <RefreshCw size={15} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={handleFillFamily} disabled={filling}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-purple-300 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-50 font-medium">
+            <Users size={15} /> {filling ? 'Filling...' : 'Fill Family Images'}
+          </button>
+          <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+            <RefreshCw size={15} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Overall summary card */}
@@ -144,11 +170,19 @@ export default function MissingImages() {
                                 <p className="text-sm font-medium text-gray-700 truncate">{product.name}</p>
                                 <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
                               </div>
-                              <label className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 cursor-pointer transition-colors ${uploadingFor === product.id ? 'opacity-50 pointer-events-none' : ''}`}>
-                                <ImagePlus size={13} />
-                                {uploadingFor === product.id ? 'Uploading...' : 'Upload'}
-                                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => handleUpload(e, product.id)} className="hidden" disabled={uploadingFor === product.id} />
-                              </label>
+                              <div className="shrink-0 flex items-center gap-1.5">
+                                <label className={`flex items-center gap-1 px-2.5 py-1.5 text-xs border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 cursor-pointer transition-colors ${uploadingFor === product.id ? 'opacity-50 pointer-events-none' : ''}`}>
+                                  <ImagePlus size={12} />
+                                  {uploadingFor === product.id ? '...' : 'Upload'}
+                                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => handleUpload(e, product.id, false)} className="hidden" disabled={uploadingFor === product.id} />
+                                </label>
+                                <label className={`flex items-center gap-1 px-2.5 py-1.5 text-xs border border-purple-300 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 cursor-pointer transition-colors ${uploadingFor === product.id ? 'opacity-50 pointer-events-none' : ''}`}
+                                  title="Upload image and share to all products in the same model family">
+                                  <Share2 size={12} />
+                                  {uploadingFor === product.id ? '...' : 'Upload + Family'}
+                                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => handleUpload(e, product.id, true)} className="hidden" disabled={uploadingFor === product.id} />
+                                </label>
+                              </div>
                             </div>
                           ))}
                         </div>

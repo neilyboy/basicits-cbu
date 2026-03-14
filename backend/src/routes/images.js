@@ -55,6 +55,89 @@ router.get('/missing', (req, res) => {
   }
 });
 
+// Fill family images - propagate images from products that have them to siblings with same model prefix
+router.post('/fill-family', (req, res) => {
+  try {
+    // Get all products that have images
+    const withImages = db.prepare(`
+      SELECT id, sku, local_image FROM products
+      WHERE local_image IS NOT NULL AND local_image != ''
+    `).all();
+
+    // Build model -> image map (first image found wins)
+    const modelImageMap = {}; // model prefix -> { local_image, source_sku }
+    for (const p of withImages) {
+      const match = p.sku.match(/^([A-Za-z]{2,4}\d{1,3})/);
+      if (!match) continue;
+      const model = match[1].toUpperCase();
+      if (!modelImageMap[model]) {
+        modelImageMap[model] = { local_image: p.local_image, source_sku: p.sku };
+      }
+    }
+
+    // Get all products without images
+    const withoutImages = db.prepare(`
+      SELECT id, sku FROM products
+      WHERE local_image IS NULL OR local_image = ''
+    `).all();
+
+    let filled = 0;
+    let noMatch = 0;
+    const updateStmt = db.prepare("UPDATE products SET local_image = ?, updated_at = datetime('now') WHERE id = ?");
+
+    for (const p of withoutImages) {
+      const match = p.sku.match(/^([A-Za-z]{2,4}\d{1,3})/);
+      if (!match) { noMatch++; continue; }
+      const model = match[1].toUpperCase();
+      if (modelImageMap[model]) {
+        updateStmt.run(modelImageMap[model].local_image, p.id);
+        filled++;
+      } else {
+        noMatch++;
+      }
+    }
+
+    res.json({
+      filled,
+      no_match: noMatch,
+      families_with_images: Object.keys(modelImageMap).length,
+      total_without_images: withoutImages.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Share a single product's image to all family members with the same model prefix
+router.post('/share-to-family/:id', (req, res) => {
+  try {
+    const product = db.prepare('SELECT id, sku, local_image FROM products WHERE id = ?').get(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    if (!product.local_image) return res.status(400).json({ error: 'Product has no image to share' });
+
+    const match = product.sku.match(/^([A-Za-z]{2,4}\d{1,3})/);
+    if (!match) return res.status(400).json({ error: 'Cannot determine model prefix from SKU' });
+    const model = match[1].toUpperCase();
+
+    // Find siblings without images
+    const siblings = db.prepare(`
+      SELECT id, sku FROM products
+      WHERE (local_image IS NULL OR local_image = '')
+        AND UPPER(sku) LIKE ? || '%'
+        AND id != ?
+    `).all(model, product.id);
+
+    const updateStmt = db.prepare("UPDATE products SET local_image = ?, updated_at = datetime('now') WHERE id = ?");
+    for (const sib of siblings) {
+      updateStmt.run(product.local_image, sib.id);
+    }
+
+    res.json({ shared: siblings.length, model, source_sku: product.sku });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch and cache a product image locally
 router.post('/fetch', async (req, res) => {
   try {
