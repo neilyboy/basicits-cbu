@@ -17,6 +17,7 @@ export default function MissingImages() {
   const [similarImages, setSimilarImages] = useState(null)
   const [loadingSimilar, setLoadingSimilar] = useState(false)
   const [copying, setCopying] = useState(false)
+  const [pendingPick, setPendingPick] = useState(null) // { sourceId, localImage }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -62,17 +63,23 @@ export default function MissingImages() {
     setLoadingSimilar(false)
   }
 
-  async function handlePickImage(sourceProductId, shareToFamily = false) {
-    if (!pickerProduct) return
+  function getModelPrefix(sku) {
+    const m = sku?.match(/^([A-Za-z]{2,4}\d{1,3})/)
+    return m ? m[1].toUpperCase() : null
+  }
+
+  async function confirmPick(shareToFamily) {
+    if (!pickerProduct || !pendingPick) return
     setCopying(true)
     try {
-      await api.copyImageFrom(sourceProductId, pickerProduct.id)
+      await api.copyImageFrom(pendingPick.sourceId, pickerProduct.id)
       if (shareToFamily) {
         const result = await api.shareToFamily(pickerProduct.id)
-        toast.success(`Image assigned and shared to ${result.shared} family members`, { duration: 5000 })
+        toast.success(`Image applied to ${result.model} family (${result.shared + 1} products)`, { duration: 5000 })
       } else {
-        toast.success('Image assigned')
+        toast.success('Image assigned to this product only')
       }
+      setPendingPick(null)
       setPickerProduct(null)
       setSimilarImages(null)
       load()
@@ -249,6 +256,33 @@ export default function MissingImages() {
               </button>
             </div>
             <div className="overflow-y-auto p-5" style={{ maxHeight: 'calc(80vh - 70px)' }}>
+              {/* Confirmation step after selecting an image */}
+              {pendingPick && (
+                <div className="mb-5 p-4 bg-brand-50 border border-brand-200 rounded-xl">
+                  <div className="flex items-center gap-4">
+                    <img src={`${API_URL}/images/${pendingPick.localImage}`} className="w-16 h-16 object-contain rounded-lg border border-gray-200 bg-white" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-800 mb-2">Apply this image to:</p>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button onClick={() => confirmPick(false)} disabled={copying}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                          Just <span className="font-mono">{pickerProduct.sku}</span>
+                        </button>
+                        {getModelPrefix(pickerProduct.sku) && (
+                          <button onClick={() => confirmPick(true)} disabled={copying}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                            <Users size={13} />
+                            Entire {getModelPrefix(pickerProduct.sku)} family
+                          </button>
+                        )}
+                        <button onClick={() => setPendingPick(null)} className="flex items-center justify-center px-3 py-2 text-xs text-gray-400 hover:text-gray-600">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {loadingSimilar && <p className="text-center text-gray-400 py-8">Loading similar images...</p>}
               {similarImages && (
                 <>
@@ -260,18 +294,11 @@ export default function MissingImages() {
                       <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Subcategory</h4>
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                         {similarImages.same_subcategory.map(p => (
-                          <div key={p.id} className="group relative">
-                            <button onClick={() => handlePickImage(p.id, false)} disabled={copying}
-                              className="w-full bg-gray-50 rounded-xl border border-gray-200 p-2 hover:border-brand-400 hover:shadow-md transition-all disabled:opacity-50">
-                              <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
-                              <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
-                            </button>
-                            <button onClick={() => handlePickImage(p.id, true)} disabled={copying}
-                              className="absolute -top-1.5 -right-1.5 bg-purple-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                              title="Use this image + share to family">
-                              <Users size={10} />
-                            </button>
-                          </div>
+                          <button key={p.id} onClick={() => setPendingPick({ sourceId: p.id, localImage: p.local_image })}
+                            className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.sourceId === p.id ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
+                            <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
+                            <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -281,19 +308,12 @@ export default function MissingImages() {
                       <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Category (other subcategories)</h4>
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                         {similarImages.same_category.map(p => (
-                          <div key={p.id} className="group relative">
-                            <button onClick={() => handlePickImage(p.id, false)} disabled={copying}
-                              className="w-full bg-gray-50 rounded-xl border border-gray-200 p-2 hover:border-brand-400 hover:shadow-md transition-all disabled:opacity-50">
-                              <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
-                              <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
-                              <p className="text-[9px] text-gray-400 truncate">{p.subcategory_name}</p>
-                            </button>
-                            <button onClick={() => handlePickImage(p.id, true)} disabled={copying}
-                              className="absolute -top-1.5 -right-1.5 bg-purple-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                              title="Use this image + share to family">
-                              <Users size={10} />
-                            </button>
-                          </div>
+                          <button key={p.id} onClick={() => setPendingPick({ sourceId: p.id, localImage: p.local_image })}
+                            className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.sourceId === p.id ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
+                            <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
+                            <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
+                            <p className="text-[9px] text-gray-400 truncate">{p.subcategory_name}</p>
+                          </button>
                         ))}
                       </div>
                     </div>
