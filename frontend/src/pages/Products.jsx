@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, Package, FolderPlus, Image, Save, X, Upload, Radar, FileArchive } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, Package, FolderPlus, Image, Save, X, Upload, Radar, FileArchive, ImagePlus, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getImageUrl } from '../api'
 
@@ -25,6 +25,9 @@ export default function Products() {
   const [newSubcatName, setNewSubcatName] = useState('')
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [newProduct, setNewProduct] = useState({ sku: '', name: '', description: '', list_price: 0, subcategory_id: '' })
+  const [pendingImageFile, setPendingImageFile] = useState(null)
+  const [pendingImagePreview, setPendingImagePreview] = useState(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => { setSearch(searchInput); setPage(1) }, 300)
@@ -105,12 +108,53 @@ export default function Products() {
       return
     }
     try {
-      await api.createProduct(newProduct)
+      const created = await api.createProduct(newProduct)
+      // Upload pending image if one was selected
+      if (pendingImageFile && created?.id) {
+        try { await api.uploadImage(pendingImageFile, created.id) } catch (e) { console.error('Image upload failed:', e) }
+      }
       setNewProduct({ sku: '', name: '', description: '', list_price: 0, subcategory_id: '' })
+      clearPendingImage()
       setShowAddProduct(false)
       loadProducts()
       loadCategories()
       toast.success('Product added')
+    } catch (err) { toast.error(err.message) }
+  }
+
+  function clearPendingImage() {
+    setPendingImageFile(null)
+    if (pendingImagePreview) URL.revokeObjectURL(pendingImagePreview)
+    setPendingImagePreview(null)
+  }
+
+  function handlePendingImageSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    clearPendingImage()
+    setPendingImageFile(file)
+    setPendingImagePreview(URL.createObjectURL(file))
+  }
+
+  async function handleEditImageUpload(e, productId) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingImage(true)
+    try {
+      const result = await api.uploadImage(file, productId)
+      setEditingProduct(p => ({ ...p, local_image: result.filename }))
+      loadProducts()
+      toast.success('Image updated')
+    } catch (err) { toast.error(err.message) }
+    setUploadingImage(false)
+  }
+
+  async function handleRemoveImage(productId) {
+    try {
+      await api.updateProduct(productId, { local_image: '' })
+      setEditingProduct(p => ({ ...p, local_image: null, image_url: null }))
+      loadProducts()
+      toast.success('Image removed')
     } catch (err) { toast.error(err.message) }
   }
 
@@ -388,6 +432,29 @@ export default function Products() {
             </div>
             <div className="space-y-3">
               <div>
+                <label className="text-xs font-medium text-gray-500">Product Image</label>
+                <div className="flex items-center gap-3 mt-1">
+                  {getImageUrl(editingProduct) ? (
+                    <img src={getImageUrl(editingProduct)} className="w-16 h-16 object-contain rounded-lg border border-gray-200 bg-gray-50" />
+                  ) : (
+                    <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center border border-dashed border-gray-300">
+                      <Package size={24} className="text-gray-300" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1.5">
+                    <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 cursor-pointer ${uploadingImage ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <ImagePlus size={13} /> {uploadingImage ? 'Uploading...' : 'Upload Image'}
+                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => handleEditImageUpload(e, editingProduct.id)} className="hidden" disabled={uploadingImage} />
+                    </label>
+                    {getImageUrl(editingProduct) && (
+                      <button onClick={() => handleRemoveImage(editingProduct.id)} className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-600 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50">
+                        <XCircle size={13} /> Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div>
                 <label className="text-xs font-medium text-gray-500">SKU</label>
                 <input type="text" value={editingProduct.sku} onChange={e => setEditingProduct(p => ({ ...p, sku: e.target.value }))}
                   className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-brand-500" />
@@ -434,6 +501,29 @@ export default function Products() {
               <button onClick={() => setShowAddProduct(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
             </div>
             <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-500">Product Image</label>
+                <div className="flex items-center gap-3 mt-1">
+                  {pendingImagePreview ? (
+                    <img src={pendingImagePreview} className="w-16 h-16 object-contain rounded-lg border border-gray-200 bg-gray-50" />
+                  ) : (
+                    <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center border border-dashed border-gray-300">
+                      <Package size={24} className="text-gray-300" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 cursor-pointer">
+                      <ImagePlus size={13} /> {pendingImageFile ? 'Change Image' : 'Choose Image'}
+                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePendingImageSelect} className="hidden" />
+                    </label>
+                    {pendingImageFile && (
+                      <button onClick={clearPendingImage} className="flex items-center gap-1 px-3 py-1.5 text-xs text-red-600 hover:text-red-700 border border-red-200 rounded-lg hover:bg-red-50">
+                        <XCircle size={13} /> Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div>
                 <label className="text-xs font-medium text-gray-500">Subcategory *</label>
                 <select value={newProduct.subcategory_id} onChange={e => setNewProduct(p => ({ ...p, subcategory_id: parseInt(e.target.value) || '' }))}
