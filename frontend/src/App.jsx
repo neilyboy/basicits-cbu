@@ -7,6 +7,7 @@ import CbuEditor from './pages/CbuEditor'
 import CbuView from './pages/CbuView'
 import Products from './pages/Products'
 import ImportProducts from './pages/ImportProducts'
+import MissingImages from './pages/MissingImages'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/cbus/:id/edit" element={<CbuEditor />} />
           <Route path="/products" element={<Products />} />
           <Route path="/products/import" element={<ImportProducts />} />
+          <Route path="/products/missing-images" element={<MissingImages />} />
         </Route>
       </Routes>
     </>

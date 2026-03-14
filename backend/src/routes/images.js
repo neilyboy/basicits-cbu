@@ -8,6 +8,53 @@ const { db, DATA_DIR } = require('../database');
 
 const IMG_DIR = path.join(DATA_DIR, 'product-images');
 
+// Missing images report - grouped by category with counts
+router.get('/missing', (req, res) => {
+  try {
+    const categories = db.prepare(`
+      SELECT c.id, c.name, c.sort_order,
+        (SELECT COUNT(*) FROM products p JOIN product_subcategories s ON p.subcategory_id = s.id WHERE s.category_id = c.id) as total,
+        (SELECT COUNT(*) FROM products p JOIN product_subcategories s ON p.subcategory_id = s.id WHERE s.category_id = c.id AND (p.local_image IS NOT NULL AND p.local_image != '')) as with_image
+      FROM product_categories c
+      ORDER BY c.sort_order, c.name
+    `).all();
+
+    for (const cat of categories) {
+      cat.missing = cat.total - cat.with_image;
+      cat.subcategories = db.prepare(`
+        SELECT s.id, s.name,
+          (SELECT COUNT(*) FROM products p WHERE p.subcategory_id = s.id) as total,
+          (SELECT COUNT(*) FROM products p WHERE p.subcategory_id = s.id AND (p.local_image IS NOT NULL AND p.local_image != '')) as with_image
+        FROM product_subcategories s
+        WHERE s.category_id = ?
+        ORDER BY s.sort_order, s.name
+      `).all(cat.id);
+
+      for (const sub of cat.subcategories) {
+        sub.missing = sub.total - sub.with_image;
+        sub.products = db.prepare(`
+          SELECT id, sku, name, description, local_image, image_url
+          FROM products
+          WHERE subcategory_id = ? AND (local_image IS NULL OR local_image = '')
+          ORDER BY name
+        `).all(sub.id);
+      }
+      // Remove subcategories with no missing products
+      cat.subcategories = cat.subcategories.filter(s => s.missing > 0);
+    }
+
+    const totalProducts = categories.reduce((a, c) => a + c.total, 0);
+    const totalWithImage = categories.reduce((a, c) => a + c.with_image, 0);
+
+    res.json({
+      summary: { total: totalProducts, with_image: totalWithImage, missing: totalProducts - totalWithImage },
+      categories: categories.filter(c => c.missing > 0),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch and cache a product image locally
 router.post('/fetch', async (req, res) => {
   try {

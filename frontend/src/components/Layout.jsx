@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, FileStack, Package, Upload, Menu, X } from 'lucide-react'
+import { LayoutDashboard, FileStack, Package, Upload, Menu, X, ImageOff } from 'lucide-react'
 import { useState } from 'react'
 
 const NAV_ITEMS = [
@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: '/cbus', icon: FileStack, label: 'Cost Build Ups' },
   { to: '/products', icon: Package, label: 'Products' },
   { to: '/products/import', icon: Upload, label: 'Import Products' },
+  { to: '/products/missing-images', icon: ImageOff, label: 'Missing Images' },
 ]
 
 export default function Layout() {

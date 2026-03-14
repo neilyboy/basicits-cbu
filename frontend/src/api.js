@@ -56,6 +56,7 @@ export const api = {
   },
 
   // Images
+  getMissingImages: () => request('/images/missing'),
   fetchAllImages: () => request('/images/fetch-all', { method: 'POST' }),
   discoverImages: () => request('/images/discover', { method: 'POST' }),
   uploadImageZip: (file) => {
