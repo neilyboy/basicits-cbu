@@ -16,7 +16,8 @@
     "xlsx": "^0.18.5",
     "pdfkit": "^0.15.0",
     "node-fetch": "^2.7.0",
-    "sharp": "^0.33.2"
+    "sharp": "^0.33.2",
+    "adm-zip": "^0.5.10"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

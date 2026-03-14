@@ -3,6 +3,7 @@ const router = express.Router();
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
+const AdmZip = require('adm-zip');
 const { db, DATA_DIR } = require('../database');
 
 const IMG_DIR = path.join(DATA_DIR, 'product-images');
@@ -83,6 +84,193 @@ router.post('/fetch-all', async (req, res) => {
   }
 });
 
+// Smart image discovery - tries multiple Verkada CDN URL patterns per product
+router.post('/discover', async (req, res) => {
+  try {
+    const CDN_BASE = 'https://cdn.verkada.com/image/upload/c_limit,w_256/f_auto/q_auto/v1/';
+
+    // Extract model code from SKU (first segment before hyphen, lowercased)
+    function extractModel(sku) {
+      if (!sku) return null;
+      // For ACC-* accessories, return full SKU without trailing region/variant
+      if (sku.startsWith('ACC-') || sku.startsWith('ACCX-')) return null;
+      // For LIC-* licenses, skip
+      if (sku.startsWith('LIC-') || sku.startsWith('SPT-') || sku.startsWith('PSV-')) return null;
+      // Extract model: first alphanumeric segment (e.g., CB52 from CB52-256E-HW)
+      const match = sku.match(/^([A-Za-z]{2,3}\d{1,3})/);
+      return match ? match[1].toLowerCase() : null;
+    }
+
+    // Build URL patterns to try based on category and model
+    function getPatterns(model, modelUpper, categoryName, sku) {
+      const patterns = [];
+
+      if (/video security/i.test(categoryName)) {
+        patterns.push(
+          `img/products/${model}-hero`,
+          `img/products/${model}-e-hero`,
+          `img/products/${model}`,
+          `img/security-cameras/${model}`,
+          `guides/products/${model}`,
+        );
+      } else if (/access control/i.test(categoryName)) {
+        patterns.push(
+          `img/access-control/access-controllers/${model}`,
+          `img/access-control/readers/${model}`,
+          `guides/products/${model}`,
+          `img/products/${model}`,
+        );
+      } else if (/intercom/i.test(categoryName)) {
+        patterns.push(
+          `img/intercom/video-intercom/${model}`,
+          `img/intercom/intercom-${modelUpper}`,
+          `img/intercom/intercom-${model}`,
+          `guides/products/${model}`,
+          `img/products/${model}`,
+        );
+      } else if (/environmental/i.test(categoryName)) {
+        patterns.push(
+          `img/environmental-monitoring/sensor/${model}`,
+          `img/environmental-monitoring/${model}`,
+          `img/products/${model}`,
+          `guides/products/${model}`,
+        );
+      } else if (/alarm/i.test(categoryName)) {
+        patterns.push(
+          `img/alarms/${model}`,
+          `img/alarms/alarm-panels/${model}`,
+          `img/products/${model}`,
+          `guides/products/${model}`,
+        );
+      } else if (/horn/i.test(categoryName)) {
+        patterns.push(
+          `img/horn/${model}`,
+          `img/products/${model}`,
+          `guides/products/${model}`,
+        );
+      } else if (/connectivity/i.test(categoryName)) {
+        patterns.push(
+          `img/connectivity/${model}`,
+          `img/connectivity/${model}-e`,
+          `img/products/${model}`,
+          `guides/products/${model}`,
+        );
+      } else if (/workplace/i.test(categoryName)) {
+        patterns.push(
+          `img/workplace/${model}`,
+          `img/products/${model}`,
+          `guides/products/${model}`,
+        );
+      }
+
+      // Universal fallbacks
+      if (!patterns.includes(`img/products/${model}`)) patterns.push(`img/products/${model}`);
+      if (!patterns.includes(`guides/products/${model}`)) patterns.push(`guides/products/${model}`);
+      if (!patterns.includes(`img/products/${model}-hero`)) patterns.push(`img/products/${model}-hero`);
+      if (!patterns.includes(`img/products/${model}-e-hero`)) patterns.push(`img/products/${model}-e-hero`);
+
+      return patterns;
+    }
+
+    // Get all hardware products without local images
+    const products = db.prepare(`
+      SELECT p.id, p.sku, p.name, p.image_url, p.local_image, c.name as category_name
+      FROM products p
+      JOIN product_subcategories s ON p.subcategory_id = s.id
+      JOIN product_categories c ON s.category_id = c.id
+      WHERE (p.local_image IS NULL OR p.local_image = '')
+      ORDER BY c.sort_order, p.name
+    `).all();
+
+    let discovered = 0;
+    let failed = 0;
+    let skipped = 0;
+    const results = [];
+    const modelCache = {}; // Cache: model -> working CDN path (so variants reuse the same image)
+
+    for (const product of products) {
+      const model = extractModel(product.sku);
+      if (!model) {
+        skipped++;
+        continue;
+      }
+
+      const modelUpper = model.toUpperCase();
+      const filename = `${product.sku.replace(/[^a-zA-Z0-9-]/g, '_')}.png`;
+      const filePath = path.join(IMG_DIR, filename);
+
+      // If file already exists on disk, just update the DB
+      if (fs.existsSync(filePath)) {
+        db.prepare("UPDATE products SET local_image = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(filename, product.id);
+        discovered++;
+        results.push({ sku: product.sku, status: 'cached', model });
+        continue;
+      }
+
+      // If we already found a working URL for this model, reuse it
+      if (modelCache[model]) {
+        try {
+          const response = await fetch(modelCache[model], { timeout: 10000 });
+          if (response.ok) {
+            const buffer = await response.buffer();
+            fs.writeFileSync(filePath, buffer);
+            db.prepare("UPDATE products SET local_image = ?, image_url = ?, updated_at = datetime('now') WHERE id = ?")
+              .run(filename, modelCache[model], product.id);
+            discovered++;
+            results.push({ sku: product.sku, status: 'reused', model, url: modelCache[model] });
+            await new Promise(r => setTimeout(r, 200));
+            continue;
+          }
+        } catch (e) { /* fall through to pattern probing */ }
+      }
+
+      // Try each URL pattern
+      let found = false;
+      const patterns = getPatterns(model, modelUpper, product.category_name, product.sku);
+
+      for (const pattern of patterns) {
+        const url = CDN_BASE + pattern;
+        try {
+          const response = await fetch(url, { timeout: 8000 });
+          if (response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('image') || contentType.includes('octet')) {
+              const buffer = await response.buffer();
+              if (buffer.length > 500) { // Ensure it's not a tiny error placeholder
+                fs.writeFileSync(filePath, buffer);
+                db.prepare("UPDATE products SET local_image = ?, image_url = ?, updated_at = datetime('now') WHERE id = ?")
+                  .run(filename, url, product.id);
+                modelCache[model] = url;
+                discovered++;
+                results.push({ sku: product.sku, status: 'discovered', model, pattern });
+                found = true;
+                break;
+              }
+            }
+          }
+        } catch (e) { /* try next pattern */ }
+        await new Promise(r => setTimeout(r, 1500)); // Rate limit - 1.5s to avoid CDN throttling
+      }
+
+      if (!found) {
+        failed++;
+        results.push({ sku: product.sku, status: 'not_found', model });
+      }
+    }
+
+    res.json({
+      total: products.length,
+      discovered,
+      failed,
+      skipped,
+      results: results.slice(0, 100),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Upload a custom product image
 const multer = require('multer');
 const upload = multer({
@@ -111,6 +299,107 @@ router.post('/upload', upload.single('image'), (req, res) => {
 
     res.json({ filename: newName, path: `/images/${newName}` });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk ZIP upload - user downloads from Bynder DAM, uploads ZIP, we auto-match to products
+const zipUpload = multer({ dest: '/tmp', limits: { fileSize: 500 * 1024 * 1024 } }); // 500MB max
+
+router.post('/upload-zip', zipUpload.single('zipfile'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No ZIP file uploaded' });
+
+    const zip = new AdmZip(req.file.path);
+    const entries = zip.getEntries();
+
+    // Get all products with their models for matching
+    const products = db.prepare(`
+      SELECT p.id, p.sku, p.name, p.local_image FROM products p
+    `).all();
+
+    // Build model -> products map
+    const modelMap = {}; // model -> [product, ...]
+    for (const p of products) {
+      const match = p.sku.match(/^([A-Za-z]{2,3}\d{1,3})/);
+      if (match) {
+        const model = match[1].toUpperCase();
+        if (!modelMap[model]) modelMap[model] = [];
+        modelMap[model].push(p);
+      }
+    }
+
+    let matched = 0;
+    let unmatched = 0;
+    let skippedExisting = 0;
+    const results = [];
+    const imageExt = ['.png', '.jpg', '.jpeg', '.webp'];
+
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const origName = path.basename(entry.entryName);
+      const ext = path.extname(origName).toLowerCase();
+      if (!imageExt.includes(ext)) continue;
+
+      // Extract potential model codes from filename
+      // Filenames like: CB52-E_Product_Photo.png, AC12_front.png, 221117_BC51_Dashboard.png
+      const nameUpper = origName.toUpperCase();
+      const modelMatches = nameUpper.match(/[A-Z]{2,3}\d{1,3}/g) || [];
+
+      // Find matching products
+      let foundProducts = [];
+      for (const modelCode of modelMatches) {
+        if (modelMap[modelCode]) {
+          foundProducts = modelMap[modelCode];
+          break;
+        }
+      }
+
+      if (foundProducts.length === 0) {
+        unmatched++;
+        results.push({ file: origName, status: 'no_match', models_tried: modelMatches });
+        continue;
+      }
+
+      // Extract image data
+      const buffer = entry.getData();
+      if (!buffer || buffer.length < 100) continue;
+
+      // Save image for each matching product variant
+      for (const product of foundProducts) {
+        // Skip if product already has an image
+        if (product.local_image) {
+          const existPath = path.join(IMG_DIR, product.local_image);
+          if (fs.existsSync(existPath)) {
+            skippedExisting++;
+            continue;
+          }
+        }
+
+        const filename = `${product.sku.replace(/[^a-zA-Z0-9-]/g, '_')}${ext}`;
+        const filePath = path.join(IMG_DIR, filename);
+        fs.writeFileSync(filePath, buffer);
+        db.prepare("UPDATE products SET local_image = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(filename, product.id);
+        matched++;
+      }
+
+      results.push({ file: origName, status: 'matched', model: modelMatches[0], products: foundProducts.length });
+    }
+
+    // Clean up temp file
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+
+    res.json({
+      total_images: entries.filter(e => !e.isDirectory && imageExt.includes(path.extname(e.entryName).toLowerCase())).length,
+      matched,
+      unmatched,
+      skipped_existing: skippedExisting,
+      results: results.slice(0, 100),
+    });
+  } catch (err) {
+    // Clean up temp file on error
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch (e) {}
     res.status(500).json({ error: err.message });
   }
 });

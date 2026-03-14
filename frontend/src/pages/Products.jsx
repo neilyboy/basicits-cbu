@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, Package, FolderPlus, Image, Save, X, Upload } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, Package, FolderPlus, Image, Save, X, Upload, Radar, FileArchive } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getImageUrl } from '../api'
 
@@ -146,6 +146,41 @@ export default function Products() {
     setFetchingImages(false)
   }
 
+  async function handleDiscoverImages() {
+    setFetchingImages(true)
+    toast('Discovering images from Verkada CDN... This may take a few minutes.', { duration: 5000, icon: '🔍' })
+    try {
+      const result = await api.discoverImages()
+      const msg = `Discovered: ${result.discovered}, Not found: ${result.failed}, Skipped: ${result.skipped}`
+      if (result.discovered > 0) {
+        toast.success(msg, { duration: 8000 })
+      } else {
+        toast(msg, { duration: 8000, icon: 'ℹ️' })
+      }
+      loadProducts()
+    } catch (err) { toast.error(err.message) }
+    setFetchingImages(false)
+  }
+
+  async function handleUploadZip(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = '' // reset input
+    setFetchingImages(true)
+    toast('Processing ZIP file... Matching images to products.', { duration: 5000, icon: '📦' })
+    try {
+      const result = await api.uploadImageZip(file)
+      const msg = `Matched: ${result.matched} products, Unmatched: ${result.unmatched} images, Skipped: ${result.skipped_existing} existing`
+      if (result.matched > 0) {
+        toast.success(msg, { duration: 8000 })
+      } else {
+        toast(msg, { duration: 8000, icon: 'ℹ️' })
+      }
+      loadProducts()
+    } catch (err) { toast.error(err.message) }
+    setFetchingImages(false)
+  }
+
   const fmt = (n) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const totalPages = Math.ceil(total / 50)
 
@@ -157,6 +192,14 @@ export default function Products() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-brand-900">Products & Inventory</h1>
         <div className="flex items-center gap-2">
+          <label className={`flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 cursor-pointer ${fetchingImages ? 'opacity-50 pointer-events-none' : ''}`}>
+            <FileArchive size={15} /> {fetchingImages ? 'Processing...' : 'Upload Image ZIP'}
+            <input type="file" accept=".zip" onChange={handleUploadZip} className="hidden" disabled={fetchingImages} />
+          </label>
+          <button onClick={handleDiscoverImages} disabled={fetchingImages}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 disabled:opacity-50">
+            <Radar size={15} /> {fetchingImages ? 'Discovering...' : 'Discover Images'}
+          </button>
           <button onClick={handleFetchAllImages} disabled={fetchingImages}
             className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
             <Image size={15} /> {fetchingImages ? 'Fetching...' : 'Fetch Images'}

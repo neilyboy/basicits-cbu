@@ -57,6 +57,12 @@ export const api = {
 
   // Images
   fetchAllImages: () => request('/images/fetch-all', { method: 'POST' }),
+  discoverImages: () => request('/images/discover', { method: 'POST' }),
+  uploadImageZip: (file) => {
+    const fd = new FormData();
+    fd.append('zipfile', file);
+    return request('/images/upload-zip', { method: 'POST', body: fd });
+  },
   fetchImage: (productId, imageUrl) => request('/images/fetch', { method: 'POST', body: JSON.stringify({ product_id: productId, image_url: imageUrl }) }),
   uploadImage: (file, productId) => {
     const fd = new FormData();
