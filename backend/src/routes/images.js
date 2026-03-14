@@ -138,6 +138,68 @@ router.post('/share-to-family/:id', (req, res) => {
   }
 });
 
+// Get similar product images (from same subcategory/category) for picking
+router.get('/similar/:id', (req, res) => {
+  try {
+    const product = db.prepare(`
+      SELECT p.id, p.sku, p.name, p.subcategory_id, s.category_id
+      FROM products p
+      JOIN product_subcategories s ON p.subcategory_id = s.id
+      WHERE p.id = ?
+    `).get(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    // Get products with images from same subcategory first, then same category
+    const sameSubcategory = db.prepare(`
+      SELECT DISTINCT p.id, p.sku, p.name, p.local_image, s.name as subcategory_name
+      FROM products p
+      JOIN product_subcategories s ON p.subcategory_id = s.id
+      WHERE p.subcategory_id = ? AND p.id != ? AND p.local_image IS NOT NULL AND p.local_image != ''
+      ORDER BY p.name
+    `).all(product.subcategory_id, product.id);
+
+    const sameCategory = db.prepare(`
+      SELECT DISTINCT p.id, p.sku, p.name, p.local_image, s.name as subcategory_name
+      FROM products p
+      JOIN product_subcategories s ON p.subcategory_id = s.id
+      WHERE s.category_id = ? AND p.subcategory_id != ? AND p.id != ? AND p.local_image IS NOT NULL AND p.local_image != ''
+      ORDER BY p.name
+    `).all(product.category_id, product.subcategory_id, product.id);
+
+    // Deduplicate by local_image (many variants share the same file)
+    const seen = new Set();
+    const dedup = (list) => list.filter(p => {
+      if (seen.has(p.local_image)) return false;
+      seen.add(p.local_image);
+      return true;
+    });
+
+    res.json({
+      product,
+      same_subcategory: dedup(sameSubcategory),
+      same_category: dedup(sameCategory),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Copy image from one product to another
+router.post('/copy-from', (req, res) => {
+  try {
+    const { source_product_id, target_product_id } = req.body;
+    const source = db.prepare('SELECT id, sku, local_image FROM products WHERE id = ?').get(source_product_id);
+    if (!source || !source.local_image) return res.status(400).json({ error: 'Source product has no image' });
+
+    db.prepare("UPDATE products SET local_image = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(source.local_image, target_product_id);
+
+    res.json({ success: true, local_image: source.local_image });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch and cache a product image locally
 router.post('/fetch', async (req, res) => {
   try {

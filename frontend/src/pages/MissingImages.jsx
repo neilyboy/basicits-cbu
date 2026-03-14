@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, AlertCircle, RefreshCw, Users, Share2 } from 'lucide-react'
+import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, AlertCircle, RefreshCw, Users, Share2, Copy, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api, { getImageUrl } from '../api'
+import api, { getImageUrl, getDatabaseExportUrl } from '../api'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3099'
 
 export default function MissingImages() {
   const [data, setData] = useState(null)
@@ -11,6 +13,10 @@ export default function MissingImages() {
   const [expandedSubs, setExpandedSubs] = useState({})
   const [uploadingFor, setUploadingFor] = useState(null)
   const [filling, setFilling] = useState(false)
+  const [pickerProduct, setPickerProduct] = useState(null)
+  const [similarImages, setSimilarImages] = useState(null)
+  const [loadingSimilar, setLoadingSimilar] = useState(false)
+  const [copying, setCopying] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -43,6 +49,35 @@ export default function MissingImages() {
       load()
     } catch (err) { toast.error(err.message) }
     setUploadingFor(null)
+  }
+
+  async function openPicker(product) {
+    setPickerProduct(product)
+    setLoadingSimilar(true)
+    setSimilarImages(null)
+    try {
+      const result = await api.getSimilarImages(product.id)
+      setSimilarImages(result)
+    } catch (err) { toast.error('Failed to load similar images') }
+    setLoadingSimilar(false)
+  }
+
+  async function handlePickImage(sourceProductId, shareToFamily = false) {
+    if (!pickerProduct) return
+    setCopying(true)
+    try {
+      await api.copyImageFrom(sourceProductId, pickerProduct.id)
+      if (shareToFamily) {
+        const result = await api.shareToFamily(pickerProduct.id)
+        toast.success(`Image assigned and shared to ${result.shared} family members`, { duration: 5000 })
+      } else {
+        toast.success('Image assigned')
+      }
+      setPickerProduct(null)
+      setSimilarImages(null)
+      load()
+    } catch (err) { toast.error(err.message) }
+    setCopying(false)
   }
 
   async function handleFillFamily() {
@@ -171,6 +206,11 @@ export default function MissingImages() {
                                 <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
                               </div>
                               <div className="shrink-0 flex items-center gap-1.5">
+                                <button onClick={() => openPicker(product)}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-amber-300 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors"
+                                  title="Pick from similar product images">
+                                  <Copy size={12} /> Pick Similar
+                                </button>
                                 <label className={`flex items-center gap-1 px-2.5 py-1.5 text-xs border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 cursor-pointer transition-colors ${uploadingFor === product.id ? 'opacity-50 pointer-events-none' : ''}`}>
                                   <ImagePlus size={12} />
                                   {uploadingFor === product.id ? '...' : 'Upload'}
@@ -179,7 +219,7 @@ export default function MissingImages() {
                                 <label className={`flex items-center gap-1 px-2.5 py-1.5 text-xs border border-purple-300 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 cursor-pointer transition-colors ${uploadingFor === product.id ? 'opacity-50 pointer-events-none' : ''}`}
                                   title="Upload image and share to all products in the same model family">
                                   <Share2 size={12} />
-                                  {uploadingFor === product.id ? '...' : 'Upload + Family'}
+                                  {uploadingFor === product.id ? '...' : '+ Family'}
                                   <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => handleUpload(e, product.id, true)} className="hidden" disabled={uploadingFor === product.id} />
                                 </label>
                               </div>
@@ -195,6 +235,75 @@ export default function MissingImages() {
           </div>
         )
       })}
+      {/* Pick from Similar modal */}
+      {pickerProduct && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setPickerProduct(null); setSimilarImages(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-gray-800">Pick Image for {pickerProduct.name}</h3>
+                <p className="text-xs text-gray-400 font-mono">{pickerProduct.sku}</p>
+              </div>
+              <button onClick={() => { setPickerProduct(null); setSimilarImages(null) }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X size={18} className="text-gray-400" />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5" style={{ maxHeight: 'calc(80vh - 70px)' }}>
+              {loadingSimilar && <p className="text-center text-gray-400 py-8">Loading similar images...</p>}
+              {similarImages && (
+                <>
+                  {similarImages.same_subcategory.length === 0 && similarImages.same_category.length === 0 && (
+                    <p className="text-center text-gray-400 py-8">No similar products with images found in this category.</p>
+                  )}
+                  {similarImages.same_subcategory.length > 0 && (
+                    <div className="mb-6">
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Subcategory</h4>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        {similarImages.same_subcategory.map(p => (
+                          <div key={p.id} className="group relative">
+                            <button onClick={() => handlePickImage(p.id, false)} disabled={copying}
+                              className="w-full bg-gray-50 rounded-xl border border-gray-200 p-2 hover:border-brand-400 hover:shadow-md transition-all disabled:opacity-50">
+                              <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
+                              <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
+                            </button>
+                            <button onClick={() => handlePickImage(p.id, true)} disabled={copying}
+                              className="absolute -top-1.5 -right-1.5 bg-purple-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                              title="Use this image + share to family">
+                              <Users size={10} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {similarImages.same_category.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Category (other subcategories)</h4>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        {similarImages.same_category.map(p => (
+                          <div key={p.id} className="group relative">
+                            <button onClick={() => handlePickImage(p.id, false)} disabled={copying}
+                              className="w-full bg-gray-50 rounded-xl border border-gray-200 p-2 hover:border-brand-400 hover:shadow-md transition-all disabled:opacity-50">
+                              <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
+                              <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
+                              <p className="text-[9px] text-gray-400 truncate">{p.subcategory_name}</p>
+                            </button>
+                            <button onClick={() => handlePickImage(p.id, true)} disabled={copying}
+                              className="absolute -top-1.5 -right-1.5 bg-purple-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                              title="Use this image + share to family">
+                              <Users size={10} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

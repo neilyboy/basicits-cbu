@@ -11,6 +11,7 @@ const importRoutes = require('./routes/import');
 const exportRoutes = require('./routes/export');
 const shareRoutes = require('./routes/share');
 const imageRoutes = require('./routes/images');
+const databaseRoutes = require('./routes/database');
 
 const app = express();
 const PORT = process.env.PORT || 3099;
@@ -46,6 +47,7 @@ app.use('/api/import', importRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/share', shareRoutes);
 app.use('/api/images', imageRoutes);
+app.use('/api/database', databaseRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

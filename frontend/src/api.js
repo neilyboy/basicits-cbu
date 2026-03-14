@@ -57,6 +57,8 @@ export const api = {
 
   // Images
   getMissingImages: () => request('/images/missing'),
+  getSimilarImages: (productId) => request(`/images/similar/${productId}`),
+  copyImageFrom: (sourceId, targetId) => request('/images/copy-from', { method: 'POST', body: JSON.stringify({ source_product_id: sourceId, target_product_id: targetId }) }),
   fillFamilyImages: () => request('/images/fill-family', { method: 'POST' }),
   shareToFamily: (productId) => request(`/images/share-to-family/${productId}`, { method: 'POST' }),
   fetchAllImages: () => request('/images/fetch-all', { method: 'POST' }),
@@ -92,7 +94,17 @@ export const api = {
   addMiscCharge: (id, data) => request(`/cbus/${id}/misc-charges`, { method: 'POST', body: JSON.stringify(data) }),
   updateMiscCharge: (cbuId, chargeId, data) => request(`/cbus/${cbuId}/misc-charges/${chargeId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteMiscCharge: (cbuId, chargeId) => request(`/cbus/${cbuId}/misc-charges/${chargeId}`, { method: 'DELETE' }),
+
+  // Database export/import
+  importDatabase: (file, mode = 'merge') => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('mode', mode);
+    return request('/database/import', { method: 'POST', body: fd });
+  },
 };
+
+export const getDatabaseExportUrl = () => `${API_URL}/api/database/export`;
 
 export const getImageUrl = (product) => {
   if (product.local_image) return `${API_URL}/images/${product.local_image}`;
