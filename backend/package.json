@@ -1,0 +1,24 @@
+{
+  "name": "basicits-cbu-backend",
+  "version": "1.0.0",
+  "description": "Basic ITS - Cost Build Up Backend API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "nanoid": "^3.3.7",
+    "xlsx": "^0.18.5",
+    "pdfkit": "^0.15.0",
+    "node-fetch": "^2.7.0",
+    "sharp": "^0.33.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
