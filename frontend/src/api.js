@@ -106,7 +106,7 @@ export const api = {
   },
 };
 
-export const getDatabaseExportUrl = () => `${API_URL}/api/database/export`;
+export const getDatabaseExportUrl = () => `${API_URL || window.location.origin}/api/database/export`;
 
 export const getImageUrl = (product) => {
   if (product.local_image) return `${API_URL}/images/${product.local_image}`;
@@ -114,7 +114,7 @@ export const getImageUrl = (product) => {
   return null;
 };
 
-export const getExportUrl = (cbuId, format) => `${API_URL}/api/export/${cbuId}/${format}`;
-export const getShareUrl = (shareId) => `${API_URL}/api/share/${shareId}`;
+export const getExportUrl = (cbuId, format) => `${API_URL || window.location.origin}/api/export/${cbuId}/${format}`;
+export const getShareUrl = (shareId) => `${API_URL || window.location.origin}/api/share/${shareId}`;
 
 export default api;
