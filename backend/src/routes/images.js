@@ -200,6 +200,92 @@ router.post('/copy-from', (req, res) => {
   }
 });
 
+// Web image search using Google Custom Search API
+router.get('/web-search/:id', async (req, res) => {
+  try {
+    const apiKey = process.env.GOOGLE_API_KEY;
+    const cx = process.env.GOOGLE_CX;
+    if (!apiKey || !cx) {
+      return res.status(400).json({
+        error: 'Google Custom Search not configured. Set GOOGLE_API_KEY and GOOGLE_CX in your environment.',
+        setup_required: true,
+      });
+    }
+
+    const product = db.prepare('SELECT id, sku, name FROM products WHERE id = ?').get(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    // Build search query from product name/sku - use model number for best results
+    const query = req.query.q || `${product.sku} ${product.name} product image`;
+
+    const url = new URL('https://www.googleapis.com/customsearch/v1');
+    url.searchParams.set('key', apiKey);
+    url.searchParams.set('cx', cx);
+    url.searchParams.set('q', query);
+    url.searchParams.set('searchType', 'image');
+    url.searchParams.set('num', '10');
+    url.searchParams.set('imgSize', 'medium');
+    url.searchParams.set('safe', 'active');
+
+    const response = await fetch(url.toString());
+    const data = await response.json();
+
+    if (data.error) {
+      return res.status(data.error.code || 500).json({ error: data.error.message });
+    }
+
+    const images = (data.items || []).map(item => ({
+      url: item.link,
+      thumbnail: item.image?.thumbnailLink || item.link,
+      title: item.title,
+      width: item.image?.width,
+      height: item.image?.height,
+      source: item.displayLink,
+    }));
+
+    res.json({ product, query, images });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download a web image and assign it to a product
+router.post('/web-download', async (req, res) => {
+  try {
+    const { product_id, image_url } = req.body;
+    if (!product_id || !image_url) return res.status(400).json({ error: 'product_id and image_url required' });
+
+    const product = db.prepare('SELECT id, sku FROM products WHERE id = ?').get(product_id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const response = await fetch(image_url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BasicITS-CBU/1.0)' },
+      timeout: 15000,
+    });
+    if (!response.ok) return res.status(400).json({ error: `Failed to download image: ${response.status}` });
+
+    const contentType = response.headers.get('content-type') || '';
+    let ext = 'png';
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = 'jpg';
+    else if (contentType.includes('webp')) ext = 'webp';
+    else if (contentType.includes('gif')) ext = 'gif';
+
+    const filename = `${product.sku}.${ext}`;
+    const filepath = path.join(IMG_DIR, filename);
+    const buffer = await response.buffer();
+
+    if (buffer.length < 500) return res.status(400).json({ error: 'Downloaded file too small, likely not a valid image' });
+
+    fs.writeFileSync(filepath, buffer);
+    db.prepare("UPDATE products SET local_image = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(filename, product.id);
+
+    res.json({ success: true, local_image: filename, size: buffer.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch and cache a product image locally
 router.post('/fetch', async (req, res) => {
   try {

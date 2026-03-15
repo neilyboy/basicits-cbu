@@ -15,6 +15,8 @@ services:
       - PORT=3099
       - DATA_DIR=/app/data
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:${FRONTEND_PORT:-8099}}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_CX=${GOOGLE_CX:-}
 
   frontend:
     build:

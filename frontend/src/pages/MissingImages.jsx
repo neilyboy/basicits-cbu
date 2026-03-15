@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, AlertCircle, RefreshCw, Users, Share2, Copy, X } from 'lucide-react'
+import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, AlertCircle, RefreshCw, Users, Share2, Copy, X, Search, Globe, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getImageUrl, getDatabaseExportUrl } from '../api'
 
@@ -17,7 +17,12 @@ export default function MissingImages() {
   const [similarImages, setSimilarImages] = useState(null)
   const [loadingSimilar, setLoadingSimilar] = useState(false)
   const [copying, setCopying] = useState(false)
-  const [pendingPick, setPendingPick] = useState(null) // { sourceId, localImage }
+  const [pendingPick, setPendingPick] = useState(null) // { sourceId, localImage } or { webUrl, thumbnail }
+  const [pickerTab, setPickerTab] = useState('similar') // 'similar' | 'web'
+  const [webResults, setWebResults] = useState(null)
+  const [webSearching, setWebSearching] = useState(false)
+  const [webQuery, setWebQuery] = useState('')
+  const [webConfigError, setWebConfigError] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -52,15 +57,49 @@ export default function MissingImages() {
     setUploadingFor(null)
   }
 
+  function closePicker() {
+    setPickerProduct(null)
+    setSimilarImages(null)
+    setPendingPick(null)
+    setWebResults(null)
+    setWebQuery('')
+    setPickerTab('similar')
+    setWebConfigError(false)
+  }
+
   async function openPicker(product) {
     setPickerProduct(product)
+    setPickerTab('similar')
     setLoadingSimilar(true)
     setSimilarImages(null)
+    setPendingPick(null)
+    setWebResults(null)
+    setWebQuery('')
+    setWebConfigError(false)
     try {
       const result = await api.getSimilarImages(product.id)
       setSimilarImages(result)
     } catch (err) { toast.error('Failed to load similar images') }
     setLoadingSimilar(false)
+  }
+
+  async function doWebSearch(customQuery) {
+    if (!pickerProduct) return
+    setWebSearching(true)
+    setWebResults(null)
+    setWebConfigError(false)
+    try {
+      const result = await api.webSearchImages(pickerProduct.id, customQuery || webQuery || null)
+      setWebResults(result)
+      if (!customQuery && !webQuery) setWebQuery(result.query)
+    } catch (err) {
+      if (err.message?.includes('not configured')) {
+        setWebConfigError(true)
+      } else {
+        toast.error(err.message || 'Search failed')
+      }
+    }
+    setWebSearching(false)
   }
 
   function getModelPrefix(sku) {
@@ -72,16 +111,20 @@ export default function MissingImages() {
     if (!pickerProduct || !pendingPick) return
     setCopying(true)
     try {
-      await api.copyImageFrom(pendingPick.sourceId, pickerProduct.id)
+      if (pendingPick.webUrl) {
+        // Download from web first
+        await api.webDownloadImage(pickerProduct.id, pendingPick.webUrl)
+      } else {
+        // Copy from existing product
+        await api.copyImageFrom(pendingPick.sourceId, pickerProduct.id)
+      }
       if (shareToFamily) {
         const result = await api.shareToFamily(pickerProduct.id)
         toast.success(`Image applied to ${result.model} family (${result.shared + 1} products)`, { duration: 5000 })
       } else {
         toast.success('Image assigned to this product only')
       }
-      setPendingPick(null)
-      setPickerProduct(null)
-      setSimilarImages(null)
+      closePicker()
       load()
     } catch (err) { toast.error(err.message) }
     setCopying(false)
@@ -242,37 +285,51 @@ export default function MissingImages() {
           </div>
         )
       })}
-      {/* Pick from Similar modal */}
+      {/* Image Picker modal */}
       {pickerProduct && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setPickerProduct(null); setSimilarImages(null) }}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={closePicker}>
           <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
                 <h3 className="font-semibold text-gray-800">Pick Image for {pickerProduct.name}</h3>
                 <p className="text-xs text-gray-400 font-mono">{pickerProduct.sku}</p>
               </div>
-              <button onClick={() => { setPickerProduct(null); setSimilarImages(null) }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+              <button onClick={closePicker} className="p-1.5 hover:bg-gray-100 rounded-lg">
                 <X size={18} className="text-gray-400" />
               </button>
             </div>
-            <div className="overflow-y-auto p-5" style={{ maxHeight: 'calc(80vh - 70px)' }}>
+
+            {/* Tabs */}
+            <div className="flex border-b border-gray-100">
+              <button onClick={() => setPickerTab('similar')}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${pickerTab === 'similar' ? 'text-brand-700 border-b-2 border-brand-500 bg-brand-50/50' : 'text-gray-500 hover:text-gray-700'}`}>
+                <Copy size={14} /> Similar Products
+              </button>
+              <button onClick={() => { setPickerTab('web'); if (!webResults && !webSearching && !webConfigError) doWebSearch() }}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${pickerTab === 'web' ? 'text-brand-700 border-b-2 border-brand-500 bg-brand-50/50' : 'text-gray-500 hover:text-gray-700'}`}>
+                <Globe size={14} /> Web Search
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5" style={{ maxHeight: 'calc(80vh - 120px)' }}>
               {/* Confirmation step after selecting an image */}
               {pendingPick && (
                 <div className="mb-5 p-4 bg-brand-50 border border-brand-200 rounded-xl">
                   <div className="flex items-center gap-4">
-                    <img src={`${API_URL}/images/${pendingPick.localImage}`} className="w-16 h-16 object-contain rounded-lg border border-gray-200 bg-white" />
+                    <img src={pendingPick.webUrl ? pendingPick.thumbnail : `${API_URL}/images/${pendingPick.localImage}`}
+                      className="w-16 h-16 object-contain rounded-lg border border-gray-200 bg-white" onError={e => e.target.style.display = 'none'} />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-800 mb-2">Apply this image to:</p>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <button onClick={() => confirmPick(false)} disabled={copying}
                           className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
-                          Just <span className="font-mono">{pickerProduct.sku}</span>
+                          {copying ? 'Downloading...' : <>Just <span className="font-mono">{pickerProduct.sku}</span></>}
                         </button>
                         {getModelPrefix(pickerProduct.sku) && (
                           <button onClick={() => confirmPick(true)} disabled={copying}
                             className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
                             <Users size={13} />
-                            Entire {getModelPrefix(pickerProduct.sku)} family
+                            {copying ? 'Downloading...' : `Entire ${getModelPrefix(pickerProduct.sku)} family`}
                           </button>
                         )}
                         <button onClick={() => setPendingPick(null)} className="flex items-center justify-center px-3 py-2 text-xs text-gray-400 hover:text-gray-600">
@@ -283,40 +340,99 @@ export default function MissingImages() {
                   </div>
                 </div>
               )}
-              {loadingSimilar && <p className="text-center text-gray-400 py-8">Loading similar images...</p>}
-              {similarImages && (
+
+              {/* Similar Products tab */}
+              {pickerTab === 'similar' && (
                 <>
-                  {similarImages.same_subcategory.length === 0 && similarImages.same_category.length === 0 && (
-                    <p className="text-center text-gray-400 py-8">No similar products with images found in this category.</p>
+                  {loadingSimilar && <p className="text-center text-gray-400 py-8">Loading similar images...</p>}
+                  {similarImages && (
+                    <>
+                      {similarImages.same_subcategory.length === 0 && similarImages.same_category.length === 0 && (
+                        <p className="text-center text-gray-400 py-8">No similar products with images found in this category.</p>
+                      )}
+                      {similarImages.same_subcategory.length > 0 && (
+                        <div className="mb-6">
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Subcategory</h4>
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                            {similarImages.same_subcategory.map(p => (
+                              <button key={p.id} onClick={() => setPendingPick({ sourceId: p.id, localImage: p.local_image })}
+                                className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.sourceId === p.id ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
+                                <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
+                                <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {similarImages.same_category.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Category (other subcategories)</h4>
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                            {similarImages.same_category.map(p => (
+                              <button key={p.id} onClick={() => setPendingPick({ sourceId: p.id, localImage: p.local_image })}
+                                className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.sourceId === p.id ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
+                                <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
+                                <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
+                                <p className="text-[9px] text-gray-400 truncate">{p.subcategory_name}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                  {similarImages.same_subcategory.length > 0 && (
-                    <div className="mb-6">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Subcategory</h4>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                        {similarImages.same_subcategory.map(p => (
-                          <button key={p.id} onClick={() => setPendingPick({ sourceId: p.id, localImage: p.local_image })}
-                            className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.sourceId === p.id ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
-                            <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
-                            <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
-                          </button>
-                        ))}
+                </>
+              )}
+
+              {/* Web Search tab */}
+              {pickerTab === 'web' && (
+                <>
+                  {webConfigError ? (
+                    <div className="text-center py-8">
+                      <Globe size={32} className="mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm font-medium text-gray-600 mb-2">Google Image Search Not Configured</p>
+                      <p className="text-xs text-gray-400 mb-4 max-w-sm mx-auto">
+                        To enable web image search, add your Google API credentials to the <code className="bg-gray-100 px-1 rounded">.env</code> file:
+                      </p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-left max-w-sm mx-auto font-mono text-xs text-gray-600">
+                        <p>GOOGLE_API_KEY=your_api_key</p>
+                        <p>GOOGLE_CX=your_search_engine_id</p>
                       </div>
+                      <p className="text-[10px] text-gray-400 mt-3">Get a free API key from <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-brand-600 underline">Google Cloud Console</a> and create a Custom Search Engine at <a href="https://programmablesearchengine.google.com" target="_blank" rel="noreferrer" className="text-brand-600 underline">Programmable Search Engine</a> (enable Image Search).</p>
                     </div>
-                  )}
-                  {similarImages.same_category.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Same Category (other subcategories)</h4>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                        {similarImages.same_category.map(p => (
-                          <button key={p.id} onClick={() => setPendingPick({ sourceId: p.id, localImage: p.local_image })}
-                            className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.sourceId === p.id ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
-                            <img src={`${API_URL}/images/${p.local_image}`} className="w-full h-20 object-contain rounded-lg" />
-                            <p className="text-[10px] text-gray-500 mt-1.5 truncate font-mono">{p.sku}</p>
-                            <p className="text-[9px] text-gray-400 truncate">{p.subcategory_name}</p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  ) : (
+                    <>
+                      {/* Search bar */}
+                      <form onSubmit={e => { e.preventDefault(); doWebSearch() }} className="flex gap-2 mb-4">
+                        <input type="text" value={webQuery} onChange={e => setWebQuery(e.target.value)}
+                          placeholder={`Search for ${pickerProduct.sku}...`}
+                          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400" />
+                        <button type="submit" disabled={webSearching}
+                          className="flex items-center gap-1.5 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium">
+                          <Search size={14} /> {webSearching ? 'Searching...' : 'Search'}
+                        </button>
+                      </form>
+
+                      {webSearching && <p className="text-center text-gray-400 py-8">Searching Google Images...</p>}
+
+                      {webResults && !webSearching && (
+                        <>
+                          {webResults.images.length === 0 && (
+                            <p className="text-center text-gray-400 py-8">No images found. Try a different search term.</p>
+                          )}
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                            {webResults.images.map((img, i) => (
+                              <button key={i} onClick={() => setPendingPick({ webUrl: img.url, thumbnail: img.thumbnail })}
+                                className={`w-full bg-gray-50 rounded-xl border-2 p-2 hover:border-brand-400 hover:shadow-md transition-all text-left ${pendingPick?.webUrl === img.url ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200'}`}>
+                                <img src={img.thumbnail} className="w-full h-20 object-contain rounded-lg" onError={e => e.target.src = img.url} />
+                                <p className="text-[10px] text-gray-500 mt-1.5 truncate">{img.title}</p>
+                                <p className="text-[9px] text-gray-400 truncate flex items-center gap-0.5"><ExternalLink size={8} />{img.source}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
                   )}
                 </>
               )}

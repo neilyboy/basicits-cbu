@@ -59,6 +59,8 @@ export const api = {
   getMissingImages: () => request('/images/missing'),
   getSimilarImages: (productId) => request(`/images/similar/${productId}`),
   copyImageFrom: (sourceId, targetId) => request('/images/copy-from', { method: 'POST', body: JSON.stringify({ source_product_id: sourceId, target_product_id: targetId }) }),
+  webSearchImages: (productId, query) => request(`/images/web-search/${productId}${query ? `?q=${encodeURIComponent(query)}` : ''}`),
+  webDownloadImage: (productId, imageUrl) => request('/images/web-download', { method: 'POST', body: JSON.stringify({ product_id: productId, image_url: imageUrl }) }),
   fillFamilyImages: () => request('/images/fill-family', { method: 'POST' }),
   shareToFamily: (productId) => request(`/images/share-to-family/${productId}`, { method: 'POST' }),
   fetchAllImages: () => request('/images/fetch-all', { method: 'POST' }),
