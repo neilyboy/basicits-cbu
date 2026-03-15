@@ -81,7 +81,7 @@ export default function DatabaseManager() {
             </p>
 
             {/* Import mode selector */}
-            <div className="flex gap-3 mb-4">
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <button onClick={() => setImportMode('merge')}
                 className={`flex-1 flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${importMode === 'merge' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
                 <Merge size={18} className={importMode === 'merge' ? 'text-blue-600' : 'text-gray-400'} />

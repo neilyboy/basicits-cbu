@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Search, Folder, FolderPlus, ChevronRight, FileStack, Trash2, Edit, Eye, Download, Share2, Upload, MoreVertical, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getExportUrl, getShareUrl } from '../api'
+import { copyToClipboard } from '../utils/clipboard'
 
 export default function CbuList() {
   const navigate = useNavigate()
@@ -82,13 +83,11 @@ export default function CbuList() {
     }
   }
 
-  function handleShare(cbu) {
+  async function handleShare(cbu) {
     const url = getShareUrl(cbu.share_id)
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success('Share link copied to clipboard!')
-    }).catch(() => {
-      prompt('Share link:', url)
-    })
+    const ok = await copyToClipboard(url)
+    if (ok) toast.success('Share link copied to clipboard!')
+    else toast.error('Could not copy — long-press the link to copy manually')
   }
 
   async function handleImportCbu(e) {
@@ -246,14 +245,14 @@ export default function CbuList() {
                       <p className="font-bold text-lg text-brand-900">{fmt((cbu.items_total || 0) + (cbu.misc_total || 0))}</p>
                       <p className="text-xs text-gray-400">{new Date(cbu.updated_at).toLocaleDateString()}</p>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Link to={`/cbus/${cbu.id}`} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-brand-600" title="View">
+                    <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+                      <Link to={`/cbus/${cbu.id}`} className="p-2.5 sm:p-2 rounded-lg hover:bg-gray-100 active:bg-gray-200 text-gray-400 hover:text-brand-600" title="View">
                         <Eye size={16} />
                       </Link>
-                      <Link to={`/cbus/${cbu.id}/edit`} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-brand-600" title="Edit">
+                      <Link to={`/cbus/${cbu.id}/edit`} className="p-2.5 sm:p-2 rounded-lg hover:bg-gray-100 active:bg-gray-200 text-gray-400 hover:text-brand-600" title="Edit">
                         <Edit size={16} />
                       </Link>
-                      <button onClick={() => handleShare(cbu)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-green-600" title="Share">
+                      <button onClick={() => handleShare(cbu)} className="p-2.5 sm:p-2 rounded-lg hover:bg-gray-100 active:bg-gray-200 text-gray-400 hover:text-green-600" title="Share">
                         <Share2 size={16} />
                       </button>
                       <div className="relative">

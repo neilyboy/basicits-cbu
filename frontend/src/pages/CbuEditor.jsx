@@ -643,8 +643,8 @@ export default function CbuEditor() {
               /* STEP 1: Browse products */
               <>
                 <div className="flex flex-1 min-h-0">
-                  {/* Category sidebar */}
-                  <div className="w-56 border-r border-gray-200 overflow-y-auto p-3 space-y-0.5 scrollbar-thin">
+                  {/* Category sidebar - hidden on mobile */}
+                  <div className="w-56 border-r border-gray-200 overflow-y-auto p-3 space-y-0.5 scrollbar-thin hidden sm:block">
                     <button onClick={() => setSelectedSubcat(null)} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${!selectedSubcat ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}>
                       All Products
                     </button>

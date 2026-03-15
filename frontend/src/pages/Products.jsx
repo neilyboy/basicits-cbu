@@ -235,24 +235,24 @@ export default function Products() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-brand-900">Products & Inventory</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <label className={`flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 cursor-pointer ${fetchingImages ? 'opacity-50 pointer-events-none' : ''}`}>
-            <FileArchive size={15} /> {fetchingImages ? 'Processing...' : 'Upload Image ZIP'}
+            <FileArchive size={15} /> <span className="hidden sm:inline">{fetchingImages ? 'Processing...' : 'Upload ZIP'}</span><span className="sm:hidden">{fetchingImages ? '...' : 'ZIP'}</span>
             <input type="file" accept=".zip" onChange={handleUploadZip} className="hidden" disabled={fetchingImages} />
           </label>
           <button onClick={handleDiscoverImages} disabled={fetchingImages}
             className="flex items-center gap-1.5 px-3 py-2 text-sm border border-brand-300 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 disabled:opacity-50">
-            <Radar size={15} /> {fetchingImages ? 'Discovering...' : 'Discover Images'}
+            <Radar size={15} /> <span className="hidden sm:inline">{fetchingImages ? 'Discovering...' : 'Discover'}</span>
           </button>
           <button onClick={handleFetchAllImages} disabled={fetchingImages}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
-            <Image size={15} /> {fetchingImages ? 'Fetching...' : 'Fetch Images'}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+            <Image size={15} /> {fetchingImages ? 'Fetching...' : 'Fetch'}
           </button>
           <Link to="/products/import" className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
-            <Upload size={15} /> Import
+            <Upload size={15} /> <span className="hidden sm:inline">Import</span>
           </Link>
-          <button onClick={() => setShowAddProduct(true)} className="flex items-center gap-1.5 bg-brand-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-800">
-            <Plus size={15} /> Add Product
+          <button onClick={() => setShowAddProduct(true)} className="flex items-center gap-1.5 bg-brand-900 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-800">
+            <Plus size={15} /> <span className="hidden sm:inline">Add Product</span><span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
@@ -391,11 +391,11 @@ export default function Products() {
                         </td>
                         <td className="px-4 py-2.5 text-right font-semibold">{fmt(product.list_price)}</td>
                         <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                            <button onClick={() => setEditingProduct({ ...product })} className="p-1 text-gray-400 hover:text-brand-600">
+                          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setEditingProduct({ ...product })} className="p-2 sm:p-1 text-gray-400 hover:text-brand-600 active:text-brand-700">
                               <Edit size={14} />
                             </button>
-                            <button onClick={() => handleDeleteProduct(product.id)} className="p-1 text-gray-400 hover:text-red-500">
+                            <button onClick={() => handleDeleteProduct(product.id)} className="p-2 sm:p-1 text-gray-400 hover:text-red-500 active:text-red-600">
                               <Trash2 size={14} />
                             </button>
                           </div>

@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Edit, Download, Share2, Trash2, ArrowLeft, FileStack, Package, DollarSign, Copy, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getExportUrl, getShareUrl } from '../api'
+import { copyToClipboard } from '../utils/clipboard'
 
 export default function CbuView() {
   const { id } = useParams()
@@ -35,13 +36,11 @@ export default function CbuView() {
     }
   }
 
-  function handleShare() {
+  async function handleShare() {
     const url = getShareUrl(cbu.share_id)
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success('Share link copied to clipboard!')
-    }).catch(() => {
-      prompt('Share link:', url)
-    })
+    const ok = await copyToClipboard(url)
+    if (ok) toast.success('Share link copied to clipboard!')
+    else toast.error('Could not copy — long-press the link to copy manually')
   }
 
   const fmt = (n) => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -59,8 +58,8 @@ export default function CbuView() {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="min-w-0">
           <Link to="/cbus" className="flex items-center gap-1 text-sm text-gray-500 hover:text-brand-600 mb-2">
             <ArrowLeft size={14} /> Back to CBUs
           </Link>
@@ -73,7 +72,7 @@ export default function CbuView() {
             <span className="text-sm text-gray-400">{new Date(cbu.created_at).toLocaleDateString()}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button onClick={handleShare} className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-green-600 hover:text-green-700">
             <Share2 size={15} /> Share
           </button>
@@ -104,15 +103,17 @@ export default function CbuView() {
       </div>
 
       {/* Share link banner */}
-      <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Share2 size={16} className="text-green-600" />
-          <span className="text-sm text-green-800">Share Link:</span>
-          <code className="text-xs bg-white px-2 py-1 rounded border border-green-200 text-green-700">{getShareUrl(cbu.share_id)}</code>
+      <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-2 sm:mb-0 sm:float-right">
+          <button onClick={handleShare} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">
+            <Copy size={14} /> Copy Link
+          </button>
         </div>
-        <button onClick={handleShare} className="flex items-center gap-1 text-sm text-green-600 hover:text-green-700 font-medium">
-          <Copy size={14} /> Copy
-        </button>
+        <div className="flex items-center gap-2">
+          <Share2 size={16} className="text-green-600 shrink-0" />
+          <span className="text-sm text-green-800 shrink-0">Share Link:</span>
+        </div>
+        <code className="text-xs bg-white px-2 py-1 rounded border border-green-200 text-green-700 mt-1 block break-all select-all">{getShareUrl(cbu.share_id)}</code>
       </div>
 
       {/* Project info */}
