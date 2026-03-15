@@ -5,8 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: basicits-cbu-backend
     restart: unless-stopped
-    ports:
-      - "${BACKEND_PORT:-3099}:3099"
+    expose:
+      - "3099"
     volumes:
       - ./data:/app/data
       - ./data/product-images:/app/data/product-images
@@ -20,8 +20,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=${VITE_API_URL:-http://localhost:${BACKEND_PORT:-3099}}
     container_name: basicits-cbu-frontend
     restart: unless-stopped
     ports:

@@ -4,7 +4,7 @@ import { ImageOff, ChevronDown, ChevronRight, ImagePlus, Package, CheckCircle2, 
 import toast from 'react-hot-toast'
 import api, { getImageUrl, getDatabaseExportUrl } from '../api'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3099'
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 export default function MissingImages() {
   const [data, setData] = useState(null)

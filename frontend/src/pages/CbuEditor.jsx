@@ -403,7 +403,7 @@ export default function CbuEditor() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {(item.image_url || item.local_image) && (
-                          <img src={item.local_image ? `${import.meta.env.VITE_API_URL || 'http://localhost:3099'}/images/${item.local_image}` : item.image_url}
+                          <img src={item.local_image ? `${import.meta.env.VITE_API_URL || ''}/images/${item.local_image}` : item.image_url}
                             className="w-8 h-8 object-contain rounded" onError={e => e.target.style.display = 'none'} />
                         )}
                         <div>
