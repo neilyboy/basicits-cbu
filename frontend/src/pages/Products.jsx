@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, Package, FolderPlus, Image, Save, X, Upload, Radar, FileArchive, ImagePlus, XCircle } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, Package, FolderPlus, Image, Save, X, Upload, Radar, FileArchive, ImagePlus, XCircle, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { getImageUrl } from '../api'
 
@@ -27,6 +27,11 @@ export default function Products() {
   const [newProduct, setNewProduct] = useState({ sku: '', name: '', description: '', list_price: 0, subcategory_id: '' })
   const [pendingImageFile, setPendingImageFile] = useState(null)
   const [pendingImagePreview, setPendingImagePreview] = useState(null)
+  const [inlineCreateMode, setInlineCreateMode] = useState(false)
+  const [inlineCatName, setInlineCatName] = useState('')
+  const [inlineSubcatName, setInlineSubcatName] = useState('')
+  const [inlineSelectedCat, setInlineSelectedCat] = useState('')
+  const [inlineCreating, setInlineCreating] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
 
   useEffect(() => {
@@ -78,6 +83,30 @@ export default function Products() {
       loadProducts()
       toast.success('Category deleted')
     } catch (err) { toast.error(err.message) }
+  }
+
+  async function handleInlineCreateCategory() {
+    setInlineCreating(true)
+    try {
+      let catId = inlineSelectedCat
+      // Create new category if typed
+      if (inlineCatName.trim()) {
+        const cat = await api.createCategory({ name: inlineCatName.trim() })
+        catId = cat.id
+      }
+      if (!catId) { toast.error('Select or create a category first'); setInlineCreating(false); return }
+      // Create subcategory under the category
+      const sub = await api.createSubcategory({ category_id: parseInt(catId), name: inlineSubcatName.trim() })
+      await loadCategories()
+      // Auto-select the newly created subcategory
+      setNewProduct(p => ({ ...p, subcategory_id: sub.id }))
+      setInlineCatName('')
+      setInlineSubcatName('')
+      setInlineSelectedCat('')
+      setInlineCreateMode(false)
+      toast.success('Category & subcategory created')
+    } catch (err) { toast.error(err.message) }
+    setInlineCreating(false)
   }
 
   async function handleCreateSubcategory(catId) {
@@ -525,12 +554,52 @@ export default function Products() {
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500">Subcategory *</label>
-                <select value={newProduct.subcategory_id} onChange={e => setNewProduct(p => ({ ...p, subcategory_id: parseInt(e.target.value) || '' }))}
-                  className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-brand-500">
-                  <option value="">Select category...</option>
-                  {allSubcats.map(s => <option key={s.id} value={s.id}>{s.catName} &gt; {s.name}</option>)}
-                </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-500">Category / Subcategory *</label>
+                  <button type="button" onClick={() => setInlineCreateMode(!inlineCreateMode)}
+                    className="text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    {inlineCreateMode ? 'Select existing' : '+ Create new'}
+                  </button>
+                </div>
+                {!inlineCreateMode ? (
+                  <select value={newProduct.subcategory_id} onChange={e => setNewProduct(p => ({ ...p, subcategory_id: parseInt(e.target.value) || '' }))}
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-brand-500">
+                    <option value="">Select category...</option>
+                    {allSubcats.map(s => <option key={s.id} value={s.id}>{s.catName} &gt; {s.name}</option>)}
+                  </select>
+                ) : (
+                  <div className="space-y-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div>
+                      <label className="text-xs text-gray-500">Category</label>
+                      <div className="flex gap-2 mt-0.5">
+                        <select value={inlineSelectedCat} onChange={e => { setInlineSelectedCat(e.target.value); setInlineCatName('') }}
+                          className="flex-1 px-2 py-1.5 border rounded text-sm focus:outline-none focus:border-brand-500">
+                          <option value="">-- Select existing or type new --</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-xs text-gray-400">or new:</span>
+                        <input type="text" value={inlineCatName} onChange={e => { setInlineCatName(e.target.value); setInlineSelectedCat('') }}
+                          placeholder="New category name" className="flex-1 px-2 py-1.5 border rounded text-sm focus:outline-none focus:border-brand-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500">Subcategory name *</label>
+                      <input type="text" value={inlineSubcatName} onChange={e => setInlineSubcatName(e.target.value)}
+                        placeholder="e.g., Bulk Cable, Patch Cables" className="w-full px-2 py-1.5 border rounded text-sm focus:outline-none focus:border-brand-500 mt-0.5" />
+                    </div>
+                    <button type="button" onClick={handleInlineCreateCategory} disabled={inlineCreating || (!inlineSelectedCat && !inlineCatName.trim()) || !inlineSubcatName.trim()}
+                      className="w-full flex items-center justify-center gap-1.5 bg-brand-900 text-white py-1.5 rounded-lg text-xs font-medium hover:bg-brand-800 disabled:opacity-50">
+                      <FolderPlus size={13} /> {inlineCreating ? 'Creating...' : 'Create & Select'}
+                    </button>
+                    {newProduct.subcategory_id && allSubcats.find(s => s.id === newProduct.subcategory_id) && (
+                      <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                        <Check size={12} /> Selected: {allSubcats.find(s => s.id === newProduct.subcategory_id)?.catName} &gt; {allSubcats.find(s => s.id === newProduct.subcategory_id)?.name}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500">SKU *</label>
